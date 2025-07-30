@@ -3,10 +3,13 @@ package config
 import "github.com/spf13/viper"
 
 type Config struct {
-	HTTPPort       string
-	DBHost, DBName string
-	DBPort, DBUser string
-	DBPassword     string
+	HTTPPort   string
+	DBHost     string
+	DBPort     string
+	DBUsername string
+	DBPassword string
+	DBName     string
+	SSLMode    string
 }
 
 func Load() (*Config, error) {
@@ -20,8 +23,9 @@ func Load() (*Config, error) {
 		DBHost:     viper.GetString("DB_HOST"),
 		DBPort:     viper.GetString("DB_PORT"),
 		DBName:     viper.GetString("DB_NAME"),
-		DBUser:     viper.GetString("DB_USERNAME"),
+		DBUsername: viper.GetString("DB_USERNAME"),
 		DBPassword: viper.GetString("DB_PASSWORD"),
+		SSLMode:    viper.GetString("DB_SSLMODE"),
 	}
 	return cfg, nil
 }
