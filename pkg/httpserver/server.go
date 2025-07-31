@@ -53,12 +53,17 @@ func (s *Server) runMigrations(db *sqlx.DB) error {
 		return fmt.Errorf("failed to create migrate instance: %w", err)
 	}
 
-	// Выполняем миграции
 	if err := m.Up(); err != nil {
 		if err == migrate.ErrNoChange {
 			log.Println("Migrations don't needed: no changes.")
 		} else {
-			log.Fatalf("Maigrations failed: %v", err)
+			log.Printf("Migration failed: %v, attempting rollback", err)
+
+			if rollbackErr := m.Steps(-1); rollbackErr != nil {
+				log.Fatalf("Failed to rollback migration: %v", rollbackErr)
+			}
+
+			return fmt.Errorf("migration failed and was rolled back: %w", err)
 		}
 	} else {
 		log.Println("Migrations applied successfully")

@@ -1,8 +1,10 @@
 package repository
 
 import (
+	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/olenka-91/DocsServer/internal/entity"
 	"github.com/sirupsen/logrus"
@@ -16,7 +18,7 @@ func NewDocsPostgres(db *sqlx.DB) *DocsPostgres {
 	return &DocsPostgres{db: db}
 }
 
-func (r *DocsPostgres) GetDocsList(s entity.LimitedDocsListInput) ([]entity.Document, error) {
+func (r *DocsPostgres) GetDocsList(ctx context.Context, s entity.LimitedDocsListInput) ([]entity.Document, error) {
 
 	queryString := `SELECT 
 		d.ID,
@@ -26,12 +28,12 @@ func (r *DocsPostgres) GetDocsList(s entity.LimitedDocsListInput) ([]entity.Docu
 		d.IS_PUBLIC AS PUBLIC,
 		d.CREATED_AT AS CREATED    
 	FROM DOCUMENTS d `
-
+	//--grant
 	args := make([]interface{}, 0)
 	argCount := 1
 
 	if s.Key != "" && s.Value != "" {
-		queryString += fmt.Sprintf(" WHERE d.%s LIKE $%d ", groupTable, argCount)
+		queryString += fmt.Sprintf(" WHERE d.%s LIKE $%d ", s.Key, argCount)
 		args = append(args, "%"+s.Value+"%")
 		argCount++
 	}
@@ -43,8 +45,10 @@ func (r *DocsPostgres) GetDocsList(s entity.LimitedDocsListInput) ([]entity.Docu
 	logrus.Debug("queryString=", queryString)
 	logrus.Debug("args=", args)
 
-	rows, err := r.db.Query(queryString, args...)
+	ctx = context.Background()
+	rows, err := r.db.QueryContext(ctx, queryString, args...)
 	if err != nil {
+		logrus.Error("DBError:", err.Error())
 		return nil, err
 	}
 	defer rows.Close()
@@ -61,4 +65,26 @@ func (r *DocsPostgres) GetDocsList(s entity.LimitedDocsListInput) ([]entity.Docu
 
 	logrus.Debug("docs count=", len(docsList))
 	return docsList, nil
+}
+
+func (r *DocsPostgres) GetDoc(ctx context.Context, docID uuid.UUID) (*entity.Document, error) {
+
+	queryString := `
+	SELECT id,owner_id,filename,path,mime,has_file,is_public,created_at,json_data
+                   FROM documents WHERE id=$1 `
+
+	var doc entity.Document
+	err := r.db.GetContext(ctx, &doc, queryString, docID)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := r.db.QueryContext(ctx,
+		`SELECT login FROM document_grants WHERE doc_id=$1`, docID)
+	for rows.Next() {
+		var l string
+		_ = rows.Scan(&l)
+		doc.Grant = append(doc.Grant, l)
+	}
+
+	return &doc, nil
 }

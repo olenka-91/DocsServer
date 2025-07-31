@@ -2,6 +2,7 @@ package handler
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/olenka-91/DocsServer/internal/handler/middleware"
 	"github.com/olenka-91/DocsServer/internal/service"
 	//	swaggerFiles "github.com/swaggo/files"     // swagger embed files
 	//	ginSwagger "github.com/swaggo/gin-swagger" // gin-swagger middleware
@@ -19,8 +20,14 @@ func NewHandler(serv *service.Service) *Handler {
 func (h *Handler) InitRoutes() *gin.Engine {
 	router := gin.New()
 
-	router.GET("/api/docs", h.getDocsList)
-	router.HEAD("/api/docs", h.getDocsList)
+	g := router.Group("/api/docs")
+	{
+		g.GET("", middleware.Wrap(h.getDocsList))
+		g.HEAD("", middleware.Wrap(h.getDocsList))
+		g.GET("/:id", middleware.Wrap(h.getDoc))
+		g.HEAD("/:id", middleware.Wrap(h.getDoc))
+		//g.POST("", middleware.Wrap(h.getDocsList))
+	}
 
 	//	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 

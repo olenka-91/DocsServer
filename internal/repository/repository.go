@@ -1,12 +1,16 @@
 package repository
 
 import (
+	"context"
+
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/olenka-91/DocsServer/internal/entity"
 )
 
 type Docs interface {
-	GetDocsList(s entity.LimitedDocsListInput) ([]entity.Document, error)
+	GetDocsList(ctx context.Context, s entity.LimitedDocsListInput) ([]entity.Document, error)
+	GetDoc(ctx context.Context, docID uuid.UUID) (*entity.Document, error)
 }
 
 type Repository struct {
