@@ -1,7 +1,10 @@
 package handler
 
 import (
+	"encoding/json"
+	"mime/multipart"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -43,83 +46,24 @@ func (h *Handler) getDocsList(ctx *gin.Context) (any, any, *middleware.ErrorResp
 
 }
 
-// func (h *Handler) getDoc(ctx *gin.Context) {
-// 	logrus.Debug("Entering getDoc handler")
-
-// 	token := ctx.Query("token")
-// 	if token == "" {
-// 		entity.SendErrorResponse(ctx, http.StatusBadRequest,
-// 			entity.ErrMissingParameter, "Token is required")
-// 		return
-// 	}
-
-// 	docId := ctx.Param("id")
-// 	if docId == "" {
-// 		entity.SendErrorResponse(ctx, http.StatusBadRequest,
-// 			entity.ErrInvalidParameter, "Invalid docID value")
-// 		return
-// 	}
-
-// 	if ctx.Request.Method == http.MethodHead {
-// 		ctx.Status(http.StatusOK)
-// 		return
-// 	}
-
-// 	logrus.Infof("Fetching document with id: %+v", docId)
-// 	curDoc, err := h.services.Docs.GetDoc(docId)
-// 	if err != nil {
-// 		logrus.Errorf("Failed to fetch doc: %v", err)
-
-// 		status := http.StatusInternalServerError
-// 		errorCode := entity.ErrDatabase
-
-// 		switch {
-// 		case errors.Is(err, service.ErrInvalidToken):
-// 			status = http.StatusUnauthorized
-// 			errorCode = entity.ErrInvalidToken
-// 		case errors.Is(err, service.ErrAccessDenied):
-// 			status = http.StatusForbidden
-// 			errorCode = entity.ErrAccessDenied
-// 		case errors.Is(err, service.ErrInvalidInput):
-// 			status = http.StatusBadRequest
-// 			errorCode = entity.ErrInvalidParameter
-// 		case errors.Is(err, sql.ErrNoRows):
-// 			status = http.StatusNotFound
-// 			errorCode = entity.ErrDocumentNotFound
-// 		}
-
-// 		entity.SendErrorResponse(ctx, status, errorCode, err.Error())
-// 		return
-// 	}
-
-// 	logrus.Info("Successfully fetched 1 doc")
-
-// 	if curDoc.File {
-// 		ctx.Header("Content-Type", curDoc.Mime)
-// 		ctx.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", curDoc.Name))
-// 		ctx.File(curDoc.Path)
-// 	} else {
-// 		entity.SendDataResponse(ctx, curDoc.JSONData)
-// 	}
-// }
-
 func (h *Handler) getDoc(ctx *gin.Context) (any, any, *middleware.ErrorResponse, int) {
 	logrus.Debug("Entering getDoc handler")
 
 	id, _ := uuid.Parse(ctx.Param("id"))
 	//login := ctx.GetHeader("X-User")
-	login := ctx.Query("login")
+	//	login := ctx.Query("login")
 	token := ctx.Query("token")
 
-	doc, err := h.services.GetDoc(ctx, id, login, token)
+	doc, err := h.services.GetDoc(ctx, id, token)
 	switch err {
 	case nil:
-		// if doc.File && ctx.Request.Method == http.MethodGet {
-		// 	//ctx.Header("Content-Type", doc.Mime)
-		// 	//ctx.File(doc.Path)
-		// 	return doc, nil, nil, http.StatusOK
-		// }
+		if doc == nil { //сервис уже передал файл
+			return nil, nil, nil, 0
+		}
 		return doc, nil, nil, http.StatusOK
+	case os.ErrNotExist:
+		return nil, nil, &middleware.ErrorResponse{Code: http.StatusNotFound, Text: err.Error()}, http.StatusNotFound
+
 	case service.ErrNotFound:
 		return nil, nil, &middleware.ErrorResponse{Code: http.StatusNotFound, Text: err.Error()}, http.StatusNotFound
 	case service.ErrForbidden:
@@ -127,4 +71,94 @@ func (h *Handler) getDoc(ctx *gin.Context) (any, any, *middleware.ErrorResponse,
 	default:
 		return nil, nil, &middleware.ErrorResponse{Code: http.StatusInternalServerError, Text: err.Error()}, http.StatusInternalServerError
 	}
+}
+
+type UploadResponse struct {
+	JSON interface{} `json:"json"`
+	File string      `json:"file"`
+}
+
+func (h *Handler) postDoc(ctx *gin.Context) (any, any, *middleware.ErrorResponse, int) {
+	logrus.Debug("Entering uploadDocument handler")
+
+	form, err := ctx.MultipartForm()
+	if err != nil {
+		return nil, nil, &middleware.ErrorResponse{
+			Code: http.StatusBadRequest,
+			Text: "failed to parse multipart form",
+		}, http.StatusBadRequest
+	}
+	defer form.RemoveAll()
+
+	// Обработка meta-части
+	metaValues := form.Value["meta"]
+	if len(metaValues) == 0 {
+		return nil, nil, &middleware.ErrorResponse{
+			Code: http.StatusBadRequest,
+			Text: "missing meta field",
+		}, http.StatusBadRequest
+	}
+
+	var meta entity.UploadMeta
+	if err := json.Unmarshal([]byte(metaValues[0]), &meta); err != nil {
+		return nil, nil, &middleware.ErrorResponse{
+			Code: http.StatusBadRequest,
+			Text: "invalid meta format",
+		}, http.StatusBadRequest
+	}
+
+	var jsonData entity.JSONB
+	if jsonValues, exists := form.Value["json"]; exists && len(jsonValues) > 0 {
+		//if err := json.Unmarshal([]byte(jsonValues[0]), &jsonData); err != nil {
+		if err := jsonData.Scan(jsonValues); err != nil {
+			return nil, nil, &middleware.ErrorResponse{
+				Code: http.StatusBadRequest,
+				Text: "invalid json format",
+			}, http.StatusBadRequest
+		}
+	}
+
+	var fileHeader *multipart.FileHeader
+	if fileHeaders, exists := form.File["file"]; exists && len(fileHeaders) > 0 {
+		fileHeader = fileHeaders[0]
+	}
+
+	// currentUser, err := getUserFromContext(ctx)
+	// if err != nil {
+	// 	return nil, nil, &middleware.ErrorResponse{
+	// 		Code: http.StatusUnauthorized,
+	// 		Text: "authentication required",
+	// 	}, http.StatusUnauthorized
+	// }
+
+	login := ctx.Query("login")
+	token := ctx.Query("token")
+
+	// Вызываем сервисный слой
+	_, err = h.services.PostDoc(
+		//ctx.Request.Context(),
+		ctx,
+		login,
+		token,
+		meta,
+		jsonData,
+		fileHeader,
+	)
+
+	if err != nil {
+		logrus.Errorf("Upload document error: %v", err)
+		return nil, nil, &middleware.ErrorResponse{
+			Code: http.StatusInternalServerError,
+			Text: "failed to upload document",
+		}, http.StatusInternalServerError
+	}
+
+	data := UploadResponse{}
+	data.JSON = jsonData
+	if meta.File {
+		data.File = meta.Name
+	}
+
+	return data, nil, nil, http.StatusCreated
+
 }

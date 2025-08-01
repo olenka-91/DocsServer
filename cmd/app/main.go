@@ -12,6 +12,7 @@ import (
 	"github.com/olenka-91/DocsServer/internal/handler"
 	"github.com/olenka-91/DocsServer/internal/repository"
 	"github.com/olenka-91/DocsServer/internal/service"
+	"github.com/olenka-91/DocsServer/internal/storage"
 	"github.com/olenka-91/DocsServer/pkg/httpserver"
 
 	log "github.com/sirupsen/logrus"
@@ -43,8 +44,12 @@ func main() {
 	repos := repository.NewRepository(db)
 	log.Debug("Repositories created successfully")
 
+	log.Info("Creating FileStorage...")
+	fs := storage.NewFileStorage(cfg.StorageAddr)
+	log.Debug("FileStorage created successfully")
+
 	log.Info("Creating services...")
-	serv := service.NewService(repos)
+	serv := service.NewService(repos, fs)
 	log.Debug("Services created successfully")
 
 	log.Info("Creating handlers...")

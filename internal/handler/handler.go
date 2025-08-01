@@ -26,7 +26,7 @@ func (h *Handler) InitRoutes() *gin.Engine {
 		g.HEAD("", middleware.Wrap(h.getDocsList))
 		g.GET("/:id", middleware.Wrap(h.getDoc))
 		g.HEAD("/:id", middleware.Wrap(h.getDoc))
-		//g.POST("", middleware.Wrap(h.getDocsList))
+		g.POST("", middleware.Wrap(h.postDoc))
 	}
 
 	//	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
