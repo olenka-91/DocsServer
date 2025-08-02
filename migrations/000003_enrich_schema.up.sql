@@ -2,7 +2,8 @@ INSERT INTO USERS (ID, LOGIN, PASSWORD)
 VALUES (
     'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::UUID,
     'ODvornikova',
-    '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy' 
+    --'$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy' 
+    '6a666c732c6569666e6b07be9363e57c3dafefda4307c193a24ec1938d11'
 );
 
 INSERT INTO DOCUMENTS (

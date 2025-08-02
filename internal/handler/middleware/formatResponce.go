@@ -1,6 +1,10 @@
 package middleware
 
-import "github.com/gin-gonic/gin"
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+)
 
 type ApiResponse struct {
 	Error    *ErrorResponse `json:"error,omitempty"`
@@ -18,6 +22,11 @@ func Success(c *gin.Context, status int, data, resp any) {
 }
 
 func Fail(c *gin.Context, status, code int, msg string) {
+	if status == http.StatusMethodNotAllowed {
+		if allow, exists := c.Get("Allow"); exists {
+			c.Header("Allow", allow.(string))
+		}
+	}
 	c.JSON(status, ApiResponse{Error: &ErrorResponse{Code: code, Text: msg}})
 }
 

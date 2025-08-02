@@ -49,7 +49,7 @@ func main() {
 	log.Debug("FileStorage created successfully")
 
 	log.Info("Creating services...")
-	serv := service.NewService(repos, fs)
+	serv := service.NewService(repos, fs, cfg.AdminToken)
 	log.Debug("Services created successfully")
 
 	log.Info("Creating handlers...")

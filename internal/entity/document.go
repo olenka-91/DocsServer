@@ -1,10 +1,10 @@
 package entity
 
 import (
-	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -39,16 +39,16 @@ func (j JSONB) Value() (driver.Value, error) {
 }
 
 type Document struct {
-	ID       uuid.UUID    `db:"id"          json:"id"`
-	UserID   uuid.UUID    `db:"user_id"    json:"-"`
-	Name     string       `db:"filename"    json:"filename"`
-	Path     string       `db:"path"        json:"-"`
-	Mime     string       `db:"mime"        json:"mime"`
-	File     bool         `db:"has_file"    json:"file"`
-	Public   bool         `db:"is_public"   json:"public"`
-	Created  sql.NullTime `db:"created_at"  json:"created"`
-	Grant    []string     `db:"grant"       json:"grant,omitempty"`
-	JSONData JSONB        `db:"json_data"   json:"json,omitempty"`
+	ID       uuid.UUID `db:"id"          json:"id"`
+	UserID   uuid.UUID `db:"user_id"    json:"-"`
+	Name     string    `db:"filename"    json:"name"`
+	Path     string    `db:"path"        json:"-"`
+	Mime     string    `db:"mime"        json:"mime"`
+	File     bool      `db:"has_file"    json:"file"`
+	Public   bool      `db:"is_public"   json:"public"`
+	Created  time.Time `db:"created_at"  json:"created"`
+	Grant    []string  `db:"grant"       json:"grant,omitempty"`
+	JSONData JSONB     `db:"json_data"   json:"json,omitempty"`
 }
 
 // CREATE TABLE DOCUMENTS (

@@ -129,14 +129,14 @@ func (fs *FileStorage) SaveFile(id uuid.UUID, r io.Reader, filename string) (int
 	}
 
 	//Обновляем кэш
-	etag := hex.EncodeToString(hasher.Sum(nil))
-	fs.cache.memoryCache.Store(id, &CachedFile{
-		data:    nil, // Не кэшируем данные при сохранении
-		size:    size,
-		mime:    mimeType,
-		etag:    etag,
-		created: time.Now(),
-	})
+	//	etag := hex.EncodeToString(hasher.Sum(nil))
+	// fs.cache.memoryCache.Store(id, &CachedFile{
+	// 	data:    nil, // Не кэшируем данные при сохранении
+	// 	size:    size,
+	// 	mime:    mimeType,
+	// 	etag:    etag,
+	// 	created: time.Now(),
+	// })
 
 	return size, mimeType, filePath, nil
 }
@@ -151,28 +151,24 @@ func (fs *FileStorage) DeleteFile(id uuid.UUID, filename string) error {
 		return err
 	}
 
-	// Инвалидируем кэш
 	fs.cache.memoryCache.Delete(id)
 	return nil
 }
 
 func (fs *FileStorage) ServeFile(ctx *gin.Context, doc *entity.Document) error {
-	// Для HEAD запросов только метаданные
 	if ctx.Request.Method == http.MethodHead {
 		return fs.serveFileHead(ctx.Writer, doc)
 	}
 
-	// Проверяем кэш
-	if cached, ok := fs.cache.Get(doc.ID); ok {
+	if cached, ok := fs.cache.Get(doc.ID); ok && cached.data != nil {
 		logrus.Debugf("Serving file %s from cache", doc.ID)
 		ctx.Writer.Header().Set("Content-Type", cached.mime)
 		ctx.Writer.Header().Set("ETag", cached.etag)
-		ctx.Writer.Header().Set("Content-Length", fmt.Sprintf("%d", cached.size))
+		//ctx.Writer.Header().Set("Content-Length", fmt.Sprintf("%d", cached.size))
 		http.ServeContent(ctx.Writer, ctx.Request, doc.Name, time.Now(), bytes.NewReader(cached.data))
 		return nil
 	}
 
-	// Если не в кэше, читаем с диска
 	return fs.serveFileFromDisk(ctx.Writer, ctx.Request, doc)
 }
 
@@ -233,7 +229,6 @@ func (fs *FileStorage) serveFileFromDisk(w http.ResponseWriter, r *http.Request,
 		return err
 	}
 
-	// Определяем MIME-тип
 	mimeType := doc.Mime
 	if mimeType == "" {
 		mimeType = mime.TypeByExtension(filepath.Ext(doc.Name))
@@ -242,7 +237,6 @@ func (fs *FileStorage) serveFileFromDisk(w http.ResponseWriter, r *http.Request,
 		mimeType = "application/octet-stream"
 	}
 
-	// Кэшируем файл если он небольшой
 	if info.Size() < 2*1024*1024 { // 2MB
 		data, err := io.ReadAll(file)
 		if err != nil {
@@ -262,7 +256,6 @@ func (fs *FileStorage) serveFileFromDisk(w http.ResponseWriter, r *http.Request,
 		})
 	}
 
-	// Используем эффективную отдачу файлов
 	http.ServeContent(w, r, doc.Name, info.ModTime(), file)
 	return nil
 }
@@ -276,11 +269,9 @@ func (mc *MemoryCache) Get(id uuid.UUID) (*CachedFile, bool) {
 	defer mc.RUnlock()
 
 	if file, ok := mc.files[id]; ok {
-		// Проверяем TTL
 		if time.Since(file.created) < cacheTTL {
 			return file, true
 		}
-		// Удаляем просроченный элемент
 		go mc.Delete(id)
 	}
 	return nil, false
@@ -290,12 +281,10 @@ func (mc *MemoryCache) Store(id uuid.UUID, file *CachedFile) {
 	mc.Lock()
 	defer mc.Unlock()
 
-	// Если файл слишком большой, не кэшируем
 	if int64(len(file.data)) > mc.maxSize {
 		return
 	}
 
-	// Очищаем место при необходимости
 	for len(mc.files) >= mc.maxEntries || mc.totalSize+int64(len(file.data)) > mc.maxSize {
 		var oldestKey uuid.UUID
 		var oldestTime time.Time
@@ -310,7 +299,6 @@ func (mc *MemoryCache) Store(id uuid.UUID, file *CachedFile) {
 		}
 	}
 
-	// Сохраняем файл
 	if file.data != nil {
 		mc.totalSize += int64(len(file.data))
 	}

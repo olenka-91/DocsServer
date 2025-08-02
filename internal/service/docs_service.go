@@ -44,28 +44,13 @@ func (s *DocsService) GetDocsList(ctx *gin.Context, input entity.LimitedDocsList
 	}
 
 	if input.Login == "" {
-		return nil, ErrForbidden
-	}
-
-	if input.Token == "" {
 		return nil, ErrUnauthorized
 	}
 
-	// if login == r.user.OwnerLogin(ctx, doc.OwnerID) {
-	// 	return doc, nil
-	// }
-
-	// for _, l := range doc.Grant {
-	// 	if l == login {
-	// 		return doc, nil
-	// 	}
-	// }
-
 	return docs, nil
-
 }
 
-func (s *DocsService) GetDoc(ctx *gin.Context, docID uuid.UUID, token string) (*entity.Document, error) {
+func (s *DocsService) GetDoc(ctx *gin.Context, docID uuid.UUID, login string) (*entity.Document, error) {
 	log.Debugf("Fetching doc with ID: %+v", docID)
 	doc, err := s.repo.GetDoc(ctx, docID)
 	if err != nil {
@@ -76,37 +61,43 @@ func (s *DocsService) GetDoc(ctx *gin.Context, docID uuid.UUID, token string) (*
 		return nil, ErrNotFound
 	}
 
-	if token == "" {
+	if login == "" {
+		return nil, ErrUnauthorized
+	}
+
+	if !s.canAccess(ctx, doc, login) {
 		return nil, ErrForbidden
 	}
 
-	//!doc.Public &&
-
 	if doc.File && (ctx.Request.Method == http.MethodGet || ctx.Request.Method == http.MethodHead) {
-		// Внутри ServeFile выставляются заголовки и пишется тело ответа.
+
 		if err := s.storage.ServeFile(ctx, doc); err != nil {
 			return nil, err
 		}
-		// Ответ сформирован, дальнейшая цепочка не нужна.
 		ctx.Abort()
 		return nil, nil
 	}
-
-	// if login == r.user.OwnerLogin(ctx, doc.OwnerID) {
-	// 	return doc, nil
-	// }
-
-	// for _, l := range doc.Grant {
-	// 	if l == login {
-	// 		return doc, nil
-	// 	}
-	// }
 
 	return doc, nil
 
 }
 
-func (s *DocsService) PostDoc(ctx *gin.Context, login, token string, meta entity.UploadMeta,
+func (s *DocsService) canAccess(ctx *gin.Context, doc *entity.Document, login string) bool {
+	if doc.Public {
+		return true
+	}
+	if login == s.repo.GetLoginByUserID(ctx, doc.UserID) {
+		return true
+	}
+	for _, l := range doc.Grant {
+		if l == login {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *DocsService) PostDoc(ctx *gin.Context, login string, meta entity.UploadMeta,
 	jsonData entity.JSONB, fileHeader *multipart.FileHeader) (*entity.Document, error) {
 	logrus.Debugf("Posting doc to storage.")
 
@@ -114,10 +105,10 @@ func (s *DocsService) PostDoc(ctx *gin.Context, login, token string, meta entity
 		return nil, ErrBadRequest
 	}
 
-	// Создаем документ
+	userID := s.repo.GetUserIDByLogin(ctx, login)
 	doc := entity.Document{
-		ID: uuid.New(),
-		//	OwnerID:  user.ID,
+		ID:       uuid.New(),
+		UserID:   userID,
 		Name:     meta.Name,
 		Mime:     meta.Mime,
 		File:     meta.File,
@@ -126,19 +117,22 @@ func (s *DocsService) PostDoc(ctx *gin.Context, login, token string, meta entity
 		JSONData: jsonData,
 	}
 
-	file, err := fileHeader.Open()
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
+	var storedMime, filePath string
+	if doc.File {
+		file, err := fileHeader.Open()
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
 
-	_, storedMime, filePath, err := s.storage.SaveFile(doc.ID, file, meta.Name)
-	if err != nil {
-		logrus.Errorf("Failed to save file: %v", err)
-		return nil, err
-	}
+		_, storedMime, filePath, err = s.storage.SaveFile(doc.ID, file, meta.Name)
+		if err != nil {
+			logrus.Errorf("Failed to save file: %v", err)
+			return nil, err
+		}
 
-	logrus.Debugf("Doc saved at:%s", filePath)
+		logrus.Debugf("Doc saved at:%s", filePath)
+	}
 
 	if storedMime != "" {
 		doc.Mime = storedMime
@@ -155,4 +149,38 @@ func (s *DocsService) PostDoc(ctx *gin.Context, login, token string, meta entity
 	}
 
 	return &doc, nil
+}
+
+func (s *DocsService) DeleteDoc(ctx *gin.Context, docID uuid.UUID, login string) (*entity.DelResponse, error) {
+	log.Debugf("Deleting doc with ID: %+v", docID)
+
+	if login == "" {
+		return nil, ErrUnauthorized
+	}
+
+	doc, err := s.repo.GetDoc(ctx, docID)
+	if err != nil {
+		return nil, err
+	}
+
+	if doc == nil {
+		return nil, ErrNotFound
+	}
+
+	if login != s.repo.GetLoginByUserID(ctx, doc.UserID) {
+		return nil, ErrForbidden
+	}
+
+	if doc.File {
+		if err := s.storage.DeleteFile(docID, doc.Name); err != nil {
+			return nil, err
+		}
+	}
+
+	if _, err := s.repo.DeleteDoc(ctx, docID); err != nil {
+		return nil, err
+	}
+
+	return &entity.DelResponse{docID: true}, nil
+
 }
