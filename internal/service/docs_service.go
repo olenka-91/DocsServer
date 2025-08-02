@@ -108,6 +108,7 @@ func (s *DocsService) GetDoc(ctx *gin.Context, docID uuid.UUID, token string) (*
 
 func (s *DocsService) PostDoc(ctx *gin.Context, login, token string, meta entity.UploadMeta,
 	jsonData entity.JSONB, fileHeader *multipart.FileHeader) (*entity.Document, error) {
+	logrus.Debugf("Posting doc to storage.")
 
 	if meta.File && fileHeader == nil {
 		return nil, ErrBadRequest
@@ -131,21 +132,25 @@ func (s *DocsService) PostDoc(ctx *gin.Context, login, token string, meta entity
 	}
 	defer file.Close()
 
-	// Сохраняем файл в хранилище
-	_, storedMime, err := s.storage.SaveFile(doc.ID, file, meta.Name)
+	_, storedMime, filePath, err := s.storage.SaveFile(doc.ID, file, meta.Name)
 	if err != nil {
 		logrus.Errorf("Failed to save file: %v", err)
 		return nil, err
 	}
 
-	// Обновляем информацию о документе
+	logrus.Debugf("Doc saved at:%s", filePath)
+
 	if storedMime != "" {
 		doc.Mime = storedMime
 	}
 
-	// Сохраняем документ в БД
+	if filePath != "" {
+		doc.Path = filePath
+	}
+
 	if err := s.repo.CreateDocument(ctx, &doc); err != nil {
 		logrus.Errorf("Failed to create document: %v", err)
+		s.storage.DeleteFile(doc.ID, doc.Name)
 		return nil, err
 	}
 

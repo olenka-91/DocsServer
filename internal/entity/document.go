@@ -2,6 +2,7 @@ package entity
 
 import (
 	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
 	"fmt"
 
@@ -30,9 +31,16 @@ func (j *JSONB) Scan(value interface{}) error {
 	return json.Unmarshal(bytes, j)
 }
 
+func (j JSONB) Value() (driver.Value, error) {
+	if j == nil {
+		return nil, nil
+	}
+	return json.Marshal(j)
+}
+
 type Document struct {
 	ID       uuid.UUID    `db:"id"          json:"id"`
-	OwnerID  uuid.UUID    `db:"owner_id"    json:"-"`
+	UserID   uuid.UUID    `db:"user_id"    json:"-"`
 	Name     string       `db:"filename"    json:"filename"`
 	Path     string       `db:"path"        json:"-"`
 	Mime     string       `db:"mime"        json:"mime"`

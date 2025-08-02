@@ -87,7 +87,8 @@ func (fs *FileStorage) getFilePath(id uuid.UUID, filename string) string {
 	return filepath.Join(dirPath, id.String()+"_"+filename)
 }
 
-func (fs *FileStorage) SaveFile(id uuid.UUID, r io.Reader, filename string) (int64, string, error) {
+func (fs *FileStorage) SaveFile(id uuid.UUID, r io.Reader, filename string) (int64, string, string, error) {
+	logrus.Debugf("Saving file with ID: %+v", id)
 	lock := fs.getFileLock(id)
 	lock.Lock()
 	defer lock.Unlock()
@@ -95,34 +96,30 @@ func (fs *FileStorage) SaveFile(id uuid.UUID, r io.Reader, filename string) (int
 	filePath := fs.getFilePath(id, filename)
 	tmpPath := filePath + ".tmp"
 
-	// Создаем временный файл
 	file, err := os.Create(tmpPath)
 	if err != nil {
-		return 0, "", fmt.Errorf("failed to create file: %w", err)
+		return 0, "", "", fmt.Errorf("failed to create file: %w", err)
 	}
 	defer file.Close()
 
-	// Копируем данные и вычисляем хеш
 	hasher := sha256.New()
 	tee := io.TeeReader(r, hasher)
-
 	size, err := io.Copy(file, tee)
 	if err != nil {
 		os.Remove(tmpPath)
-		return 0, "", fmt.Errorf("failed to write file: %w", err)
+		return 0, "", "", fmt.Errorf("failed to write file: %w", err)
 	}
 
-	// Финализируем запись
 	if err := file.Sync(); err != nil {
 		os.Remove(tmpPath)
-		return 0, "", fmt.Errorf("failed to sync file: %w", err)
+		return 0, "", "", fmt.Errorf("failed to sync file: %w", err)
 	}
 	file.Close()
 
 	// Переименовываем временный файл в постоянный
 	if err := os.Rename(tmpPath, filePath); err != nil {
 		os.Remove(tmpPath)
-		return 0, "", fmt.Errorf("failed to rename file: %w", err)
+		return 0, "", "", fmt.Errorf("failed to rename file: %w", err)
 	}
 
 	// Определяем MIME-тип
@@ -141,7 +138,7 @@ func (fs *FileStorage) SaveFile(id uuid.UUID, r io.Reader, filename string) (int
 		created: time.Now(),
 	})
 
-	return size, mimeType, nil
+	return size, mimeType, filePath, nil
 }
 
 func (fs *FileStorage) DeleteFile(id uuid.UUID, filename string) error {

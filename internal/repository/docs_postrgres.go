@@ -6,7 +6,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
-	"github.com/lib/pq"
 	"github.com/olenka-91/DocsServer/internal/entity"
 	"github.com/sirupsen/logrus"
 )
@@ -70,7 +69,7 @@ func (r *DocsPostgres) GetDocsList(ctx *gin.Context, s entity.LimitedDocsListInp
 func (r *DocsPostgres) GetDoc(ctx *gin.Context, docID uuid.UUID) (*entity.Document, error) {
 
 	queryString := `
-	SELECT id,owner_id,filename,path,mime,has_file,is_public,created_at,json_data
+	SELECT id,user_id,filename,path,mime,has_file,is_public,created_at,json_data
                    FROM documents WHERE id=$1 `
 
 	var doc entity.Document
@@ -90,29 +89,53 @@ func (r *DocsPostgres) GetDoc(ctx *gin.Context, docID uuid.UUID) (*entity.Docume
 }
 
 func (r *DocsPostgres) CreateDocument(ctx *gin.Context, doc *entity.Document) error {
+	tx, err := r.db.Begin()
+
 	queryString := `
 	INSERT INTO documents (
 		id, 
-		owner_id, 
-		filename, 
+		user_id, 
+		filename,
+		path, 
 		mime, 
 		has_file, 
-		is_public, 
-		grant, 
+		is_public, 		
 		json_data
 	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 `
 
-	_, err := r.db.ExecContext(ctx, queryString,
+	_, err = tx.ExecContext(ctx, queryString,
 		doc.ID,
-		doc.OwnerID,
+		//doc.UserID,
+		"a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
 		doc.Name,
+		doc.Path,
 		doc.Mime,
 		doc.File,
 		doc.Public,
-		pq.Array(doc.Grant),
+		//	pq.Array(doc.Grant),
 		doc.JSONData,
 	)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	queryString = `
+		INSERT INTO document_grants (doc_id, login)
+		VALUES ($1, (SELECT login FROM users WHERE id = $2))
+		ON CONFLICT (doc_id, login) DO NOTHING`
 
+	_, err = tx.ExecContext(ctx, queryString,
+		doc.ID,
+		//doc.UserID,
+		"a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+	)
+
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	tx.Commit()
 	return err
 }

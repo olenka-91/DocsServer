@@ -110,7 +110,7 @@ func (h *Handler) postDoc(ctx *gin.Context) (any, any, *middleware.ErrorResponse
 	var jsonData entity.JSONB
 	if jsonValues, exists := form.Value["json"]; exists && len(jsonValues) > 0 {
 		//if err := json.Unmarshal([]byte(jsonValues[0]), &jsonData); err != nil {
-		if err := jsonData.Scan(jsonValues); err != nil {
+		if err := json.Unmarshal([]byte(jsonValues[0]), &jsonData); err != nil {
 			return nil, nil, &middleware.ErrorResponse{
 				Code: http.StatusBadRequest,
 				Text: "invalid json format",
