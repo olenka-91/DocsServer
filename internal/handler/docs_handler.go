@@ -23,7 +23,6 @@ func (h *Handler) getDocsList(ctx *gin.Context) (any, any, *middleware.ErrorResp
 	}
 
 	input := entity.LimitedDocsListInput{
-		Token: ctx.Query("token"), // Обязательный параметр
 		Login: ctx.DefaultQuery("login", login),
 		Key:   ctx.Query("key"),
 		Value: ctx.Query("value"),
@@ -42,8 +41,9 @@ func (h *Handler) getDocsList(ctx *gin.Context) (any, any, *middleware.ErrorResp
 	case nil:
 		if ctx.Request.Method == http.MethodGet {
 			return filteredDocs, nil, nil, http.StatusOK
+		} else if ctx.Request.Method == http.MethodHead {
+			return nil, nil, nil, http.StatusOK
 		}
-		return nil, nil, nil, http.StatusOK
 	case service.ErrUnauthorized:
 		return nil, nil, &middleware.ErrorResponse{Code: http.StatusUnauthorized, Text: err.Error()}, http.StatusUnauthorized
 	case service.ErrForbidden:

@@ -4,6 +4,7 @@ import (
 	"crypto/sha1"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
@@ -23,8 +24,9 @@ type tokenClaims struct {
 }
 
 type AuthService struct {
-	repo       repository.Authorization
-	adminToken string
+	repo         repository.Authorization
+	adminToken   string
+	invalidToken sync.Map
 }
 
 func NewAuthService(r repository.Authorization, adminToken string) *AuthService {
@@ -59,6 +61,10 @@ func (a *AuthService) GenerateToken(username, password string) (string, error) {
 }
 
 func (a *AuthService) ParseToken(accessToken string) (string, error) {
+	if !a.IsTokenValid(accessToken) {
+		return "", errors.New("token invalid")
+	}
+
 	token, err := jwt.ParseWithClaims(accessToken, &tokenClaims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("invalid signing method")
@@ -84,4 +90,20 @@ func generatePasswordHash(password string) string {
 	hash.Write([]byte(password))
 
 	return fmt.Sprintf("%x", hash.Sum([]byte(salt)))
+}
+
+func (a *AuthService) hashToken(token string) string {
+	hash := sha1.Sum([]byte(token))
+	return fmt.Sprintf("%x", hash)
+}
+
+func (a *AuthService) InvalidateToken(token string) {
+	hashed := a.hashToken(token)
+	a.invalidToken.Store(hashed, true)
+}
+
+func (a *AuthService) IsTokenValid(token string) bool {
+	hashed := a.hashToken(token)
+	_, exists := a.invalidToken.Load(hashed)
+	return !exists
 }

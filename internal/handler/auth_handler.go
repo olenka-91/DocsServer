@@ -35,7 +35,7 @@ func (h *Handler) registerUser(c *gin.Context) (any, any, *middleware.ErrorRespo
 		return nil, nil, &middleware.ErrorResponse{Code: http.StatusInternalServerError, Text: err.Error()}, http.StatusInternalServerError
 	}
 
-	return nil, entity.RegisterUserResponse{Login: l}, nil, http.StatusOK
+	return nil, entity.RegisterUserResponse{Login: l}, nil, http.StatusCreated
 }
 
 type SignInInput struct {
@@ -148,4 +148,15 @@ func getLogin(c *gin.Context) (string, error) {
 	}
 	return loginStr, nil
 
+}
+
+func (h *Handler) logoutUser(c *gin.Context) (any, any, *middleware.ErrorResponse, int) {
+	token := c.Param("token")
+	if token == "" {
+		return nil, nil, &middleware.ErrorResponse{Code: http.StatusBadRequest, Text: "No token"}, http.StatusBadRequest
+	}
+
+	h.services.Authorization.InvalidateToken(token)
+
+	return nil, entity.AuthUserLogoutResponse{token: true}, nil, http.StatusOK
 }

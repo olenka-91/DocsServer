@@ -186,11 +186,36 @@ func (r *DocsPostgres) CreateDocument(ctx *gin.Context, doc *entity.Document) er
 		doc.ID,
 		doc.UserID,
 	)
+
 	if err != nil {
 		tx.Rollback()
 		return err
 	}
 
+	queryString = `
+		INSERT INTO document_grants (doc_id, user_id)
+		SELECT $1, u.id
+		FROM users u 
+		WHERE u.login = $2
+		ON CONFLICT (doc_id, user_id) DO NOTHING`
+
+	// Подготавливаем запрос один раз
+	stmt, err := tx.PrepareContext(ctx, queryString)
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to prepare grant statement: %w", err)
+	}
+	defer stmt.Close()
+
+	// Выполняем для каждого логина
+	for _, grantLogin := range doc.Grant {
+		_, err = stmt.ExecContext(ctx, doc.ID, grantLogin)
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("failed to grant access for %s: %w", grantLogin, err)
+		}
+		logrus.Debugf("Granted access to %s", grantLogin)
+	}
 	tx.Commit()
 	return err
 }

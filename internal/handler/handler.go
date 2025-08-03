@@ -42,7 +42,7 @@ func (h *Handler) InitRoutes() *gin.Engine {
 	{
 		g.POST("/auth", middleware.Wrap(h.autorizeUser))
 		g.POST("/register", middleware.Wrap(h.registerUser))
-		//g.DELETE("/auth/:id", middleware.Wrap(h.deleteDoc))
+		g.DELETE("/auth/:token", middleware.Wrap(h.logoutUser))
 	}
 
 	//	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
@@ -64,8 +64,7 @@ func (h *Handler) InitExtraErrorHandlers(r *gin.Engine) *gin.Engine {
 	}))
 
 	r.NoRoute(middleware.Wrap(func(c *gin.Context) (any, any, *middleware.ErrorResponse, int) {
-		// Пример того что пока не реализовано
-		if strings.HasPrefix(c.Request.URL.Path, "/api/docs/v2") {
+		if strings.HasPrefix(c.Request.URL.Path, "/swagger/*any") {
 			return nil, nil, &middleware.ErrorResponse{Code: http.StatusNotImplemented, Text: "status not implemented"},
 				http.StatusNotImplemented
 		}

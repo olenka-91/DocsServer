@@ -23,6 +23,7 @@ type Authorization interface {
 	GenerateToken(username, password string) (string, error)
 	ParseToken(accessToken string) (string, error)
 	ValidateAdminToken(adminToken string) bool
+	InvalidateToken(token string)
 }
 
 type Service struct {

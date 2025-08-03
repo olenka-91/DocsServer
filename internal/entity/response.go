@@ -20,3 +20,5 @@ type RegisterUserResponse struct {
 type AuthUserResponse struct {
 	Token string `json:"token"`
 }
+
+type AuthUserLogoutResponse map[string]bool
