@@ -1,162 +1,113 @@
 package handler
 
 import (
-	"encoding/json"
-	"errors"
-	"fmt"
 	"net/http"
-	"regexp"
-	"strings"
-	"unicode"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/olenka-91/DocsServer/internal/entity"
-	"github.com/olenka-91/DocsServer/internal/handler/middleware"
 )
 
-func (h *Handler) registerUser(c *gin.Context) (any, any, *middleware.ErrorResponse, int) {
+func (h *Handler) signUp(c *gin.Context) {
 
-	token := c.Query("token")
-	if !h.services.ValidateAdminToken(token) {
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusForbidden, Text: "have no rights"}, http.StatusForbidden
-	}
-	login := c.Query("login")
-	pswd := c.Query("pswd")
-	if err := validateLogin(login); err != nil {
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusBadRequest, Text: "Invalid login: " + err.Error()}, http.StatusBadRequest
-	}
-
-	if err := validatePassword(pswd); err != nil {
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusBadRequest, Text: "Invalid password: " + err.Error()}, http.StatusBadRequest
-	}
-
-	l, err := h.services.Authorization.CreateUser(login, pswd)
-	if err != nil {
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusInternalServerError, Text: err.Error()}, http.StatusInternalServerError
-	}
-
-	return nil, entity.RegisterUserResponse{Login: l}, nil, http.StatusCreated
-}
-
-type SignInInput struct {
-	Username string `json:"username" binding:"required"`
-	Password string `json:"password" binding:"required"`
-}
-
-func (h *Handler) autorizeUser(c *gin.Context) (any, any, *middleware.ErrorResponse, int) {
-	login := c.Query("login")
-	pswd := c.Query("pswd")
-
-	token, err := h.services.Authorization.GenerateToken(login, pswd)
-	if err != nil {
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusInternalServerError, Text: err.Error()}, http.StatusInternalServerError
-	}
-
-	return nil, entity.AuthUserResponse{Token: token}, nil, http.StatusOK
-}
-
-func validateLogin(login string) error {
-	if len(login) < 8 {
-		return errors.New("less then 8 characters")
-	}
-
-	if !regexp.MustCompile(`^[a-zA-Z0-9]+$`).MatchString(login) {
-		return errors.New("forbidden symbol")
-	}
-
-	return nil
-}
-
-// Валидация пароля
-func validatePassword(pswd string) error {
-	if len(pswd) < 8 {
-		return errors.New("less then 8 characters")
-	}
-
-	var (
-		hasUpper   = false
-		hasLower   = false
-		hasDigit   = false
-		hasSpecial = false
-	)
-
-	for _, ch := range pswd {
-		switch {
-		case unicode.IsUpper(ch):
-			hasUpper = true
-		case unicode.IsLower(ch):
-			hasLower = true
-		case unicode.IsDigit(ch):
-			hasDigit = true
-		case !unicode.IsLetter(ch) && !unicode.IsDigit(ch):
-			hasSpecial = true
-		}
-	}
-
-	errors := []string{}
-	if !hasUpper || !hasLower {
-		errors = append(errors, "at least one uppercase and one lowercase letter")
-	}
-	if !hasDigit {
-		errors = append(errors, "at least one digit")
-	}
-	if !hasSpecial {
-		errors = append(errors, "at least one special character")
-	}
-
-	if len(errors) > 0 {
-		return fmt.Errorf("requirements: %s", strings.Join(errors, ", "))
-	}
-
-	return nil
-}
-
-func (h *Handler) userIdentity(c *gin.Context) {
-	token := c.Query("token")
-
-	if token == "" {
-		if form, err := c.MultipartForm(); err == nil && form != nil {
-			if metaRaw := form.Value["meta"]; len(metaRaw) > 0 {
-				var meta entity.UploadMeta
-				if err := json.Unmarshal([]byte(metaRaw[0]), &meta); err == nil {
-					token = meta.Token
-				}
-			}
-		}
-	}
-
-	if token == "" {
+	var req entity.SignUpRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, entity.ErrorResponse{
+			Message: "Invalid request",
+			Error:   err.Error(),
+		})
 		return
 	}
 
-	login, err := h.services.Authorization.ParseToken(token)
+	tokens, err := h.services.Authorization.SignUp(req.Name, req.Password)
 	if err != nil {
+		c.JSON(http.StatusInternalServerError, entity.ErrorResponse{
+			Message: "Couldnt create user",
+			Error:   err.Error(),
+		})
 		return
 	}
 
-	c.Set("login", login)
+	c.JSON(http.StatusOK, entity.SuccessResponse{
+		Message: "User created successfully",
+		Data:    tokens,
+	})
+	return
 }
 
-func getLogin(c *gin.Context) (string, error) {
-	id, ok := c.Get("login")
-	if !ok {
-		return "", errors.New("login not found")
+func (h *Handler) signIn(c *gin.Context) {
+	var req entity.SignInRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, entity.ErrorResponse{
+			Message: "Invalid request",
+			Error:   err.Error(),
+		})
+		return
 	}
-	loginStr, ok := id.(string)
-	if !ok {
-		return "", errors.New("login is of invalid type")
-	}
-	return loginStr, nil
 
+	tokens, err := h.services.Authorization.SignIn(req.Name, req.Password)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, entity.ErrorResponse{
+			Message: "Authentication failed",
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, entity.SuccessResponse{
+		Message: "Login successfully",
+		Data:    tokens,
+	})
+	return
 }
 
-func (h *Handler) logoutUser(c *gin.Context) (any, any, *middleware.ErrorResponse, int) {
-	token := c.Param("token")
-	if token == "" {
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusBadRequest, Text: "No token"}, http.StatusBadRequest
+func (h *Handler) logout(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusBadRequest, entity.ErrorResponse{
+			Message: "Invalid request",
+			Error:   "Parameter userID not found",
+		})
+		return
 	}
 
-	h.services.Authorization.InvalidateToken(token)
+	err := h.services.Authorization.Logout(userID.(uuid.UUID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, entity.ErrorResponse{
+			Message: "Failed to logout",
+			Error:   err.Error(),
+		})
+		return
+	}
 
-	return nil, entity.AuthUserLogoutResponse{token: true}, nil, http.StatusOK
+	c.JSON(http.StatusOK, entity.SuccessResponse{
+		Message: "Logout successfully",
+	})
+	return
+}
+
+func (h *Handler) refreshToken(c *gin.Context) {
+	var req entity.RefreshTokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, entity.ErrorResponse{
+			Message: "Invalid request",
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	tokens, err := h.services.Authorization.RefreshToken(req.RefreshToken)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, entity.ErrorResponse{
+			Message: "Failed to refresh token",
+			Error:   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, entity.SuccessResponse{
+		Message: "Tokens refreshed successfully",
+		Data:    tokens,
+	})
+	return
 }

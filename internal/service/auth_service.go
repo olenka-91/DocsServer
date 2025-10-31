@@ -1,109 +1,108 @@
 package service
 
 import (
-	"crypto/sha1"
-	"errors"
 	"fmt"
-	"sync"
-	"time"
+	"strings"
 
-	"github.com/dgrijalva/jwt-go"
+	"github.com/google/uuid"
 	"github.com/olenka-91/DocsServer/internal/repository"
-	"github.com/sirupsen/logrus"
+	"github.com/olenka-91/DocsServer/internal/utils"
 )
-
-const (
-	salt       = "jfls,eifnk"
-	signingKey = "hkdkodjjh"
-	tokenTTL   = 12 * time.Hour
-)
-
-type tokenClaims struct {
-	jwt.StandardClaims
-	Login string `json:"login"`
-}
 
 type AuthService struct {
-	repo         repository.Authorization
-	adminToken   string
-	invalidToken sync.Map
+	repo repository.Authorization
 }
 
-func NewAuthService(r repository.Authorization, adminToken string) *AuthService {
-	return &AuthService{repo: r, adminToken: adminToken}
+func NewAuthService(r repository.Authorization) *AuthService {
+	return &AuthService{
+		repo: r,
+	}
 }
 
-func (a *AuthService) CreateUser(login, password string) (string, error) {
-	password = generatePasswordHash(password)
-	return a.repo.CreateUser(login, password)
-}
+func (a *AuthService) SignUp(name, password string) (map[string]string, error) {
+	existingUser, err := a.repo.GetUserByLogin(strings.ToLower(name))
+	if (err == nil) && (existingUser != nil) {
+		return nil, fmt.Errorf("user with this login already exists")
+	}
 
-func (a *AuthService) ValidateAdminToken(adminToken string) bool {
-	return adminToken == a.adminToken
-}
-
-func (a *AuthService) GenerateToken(username, password string) (string, error) {
-	user, err := a.repo.GetUser(username, generatePasswordHash(password))
-	logrus.Debug("pass=", generatePasswordHash(password))
+	hashedPassword, err := utils.HashPaasword(password)
 	if err != nil {
-		return "", ErrUnauthorized
+		return nil, err
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, &tokenClaims{
-		jwt.StandardClaims{
-			ExpiresAt: time.Now().Add(tokenTTL).Unix(),
-			IssuedAt:  time.Now().Unix(),
-		},
-		user.Login,
-	})
-	return token.SignedString([]byte(signingKey))
-
-}
-
-func (a *AuthService) ParseToken(accessToken string) (string, error) {
-	if !a.IsTokenValid(accessToken) {
-		return "", errors.New("token invalid")
-	}
-
-	token, err := jwt.ParseWithClaims(accessToken, &tokenClaims{}, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New("invalid signing method")
-		}
-
-		return []byte(signingKey), nil
-	})
+	ID, err := a.repo.CreateUser(strings.ToLower(name), hashedPassword)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	claims, ok := token.Claims.(*tokenClaims)
+	return a.generateAndSaveTokens(ID, strings.ToLower(name))
+}
 
-	if !ok {
-		return "", errors.New("token claims are not of type tokenClaims")
+func (a *AuthService) SignIn(name, password string) (map[string]string, error) {
+	existingUser, err := a.repo.GetUserByLogin(strings.ToLower(name))
+	if err != nil {
+		return nil, err
 	}
 
-	return claims.Login, nil
+	if existingUser == nil {
+		return nil, fmt.Errorf("user with this login doesnt exist")
+	}
+
+	err = utils.CheckPasswordHash(password, existingUser.Password)
+	if err != nil {
+		return nil, fmt.Errorf("invalid credentials")
+	}
+
+	return a.generateAndSaveTokens(existingUser.ID, strings.ToLower(name))
 }
 
-func generatePasswordHash(password string) string {
-	hash := sha1.New()
-	hash.Write([]byte(password))
+func (a *AuthService) RefreshToken(refreshToken string) (map[string]string, error) {
+	claims, err := utils.ValidateToken(refreshToken)
+	if err != nil {
+		return nil, err
+	}
 
-	return fmt.Sprintf("%x", hash.Sum([]byte(salt)))
+	if claims.Type != "refresh" {
+		return nil, fmt.Errorf("invalid token type")
+	}
+
+	user, err := a.repo.GetUserByID(claims.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("user not found")
+	}
+
+	if user.Token != refreshToken {
+		return nil, fmt.Errorf("invalid refresh token")
+	}
+
+	return a.generateAndSaveTokens(claims.UserID, claims.Login)
 }
 
-func (a *AuthService) hashToken(token string) string {
-	hash := sha1.Sum([]byte(token))
-	return fmt.Sprintf("%x", hash)
+func (a *AuthService) Logout(userID uuid.UUID) error {
+	return a.repo.UpdateUserToken(userID, "")
 }
 
-func (a *AuthService) InvalidateToken(token string) {
-	hashed := a.hashToken(token)
-	a.invalidToken.Store(hashed, true)
-}
+func (a *AuthService) generateAndSaveTokens(userID uuid.UUID, login string) (map[string]string, error) {
+	// Генерируем access токен
+	accessToken, err := utils.GenerateToken(userID, login, "access")
+	if err != nil {
+		return nil, err
+	}
 
-func (a *AuthService) IsTokenValid(token string) bool {
-	hashed := a.hashToken(token)
-	_, exists := a.invalidToken.Load(hashed)
-	return !exists
+	// Генерируем refresh токен
+	refreshToken, err := utils.GenerateToken(userID, login, "refresh")
+	if err != nil {
+		return nil, err
+	}
+
+	// Сохраняем refresh токен в базе
+	err = a.repo.UpdateUserToken(userID, refreshToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]string{
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+	}, nil
 }

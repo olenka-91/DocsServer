@@ -43,15 +43,11 @@ func (s *DocsService) GetDocsList(ctx *gin.Context, input entity.LimitedDocsList
 		return nil, ErrNotFound
 	}
 
-	if input.Login == "" {
-		return nil, ErrUnauthorized
-	}
-
 	return docs, nil
 }
 
 func (s *DocsService) GetDoc(ctx *gin.Context, docID uuid.UUID, login string) (*entity.Document, error) {
-	log.Debugf("Fetching doc with ID: %+v", docID)
+	log.Debugf("Fetching doc with ID: %+v by user %+v", docID, login)
 	doc, err := s.repo.GetDoc(ctx, docID)
 	if err != nil {
 		return nil, err

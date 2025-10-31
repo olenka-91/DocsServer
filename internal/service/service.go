@@ -19,11 +19,10 @@ type Docs interface {
 }
 
 type Authorization interface {
-	CreateUser(login, password string) (string, error)
-	GenerateToken(username, password string) (string, error)
-	ParseToken(accessToken string) (string, error)
-	ValidateAdminToken(adminToken string) bool
-	InvalidateToken(token string)
+	SignUp(name, password string) (map[string]string, error)
+	SignIn(name, password string) (map[string]string, error)
+	RefreshToken(refreshToken string) (map[string]string, error)
+	Logout(userID uuid.UUID) error
 }
 
 type Service struct {
@@ -31,6 +30,6 @@ type Service struct {
 	Authorization
 }
 
-func NewService(r *repository.Repository, fs *storage.FileStorage, adminToken string) *Service {
-	return &Service{Docs: NewDocsService(r.Docs, fs), Authorization: NewAuthService(r.Authorization, adminToken)}
+func NewService(r *repository.Repository, fs *storage.FileStorage) *Service {
+	return &Service{Docs: NewDocsService(r.Docs, fs), Authorization: NewAuthService(r.Authorization)}
 }

@@ -10,20 +10,15 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/olenka-91/DocsServer/internal/entity"
-	"github.com/olenka-91/DocsServer/internal/handler/middleware"
 	"github.com/olenka-91/DocsServer/internal/service"
 	"github.com/sirupsen/logrus"
 )
 
-func (h *Handler) getDocsList(ctx *gin.Context) (any, any, *middleware.ErrorResponse, int) {
+func (h *Handler) getDocsList(ctx *gin.Context) {
 	logrus.Debug("Entering getDocsList handler")
-	login, err := getLogin(ctx)
-	if err != nil {
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusUnauthorized, Text: err.Error()}, http.StatusUnauthorized
-	}
 
 	input := entity.LimitedDocsListInput{
-		Login: ctx.DefaultQuery("login", login),
+		//	Login: ctx.DefaultQuery("login", login),
 		Key:   ctx.Query("key"),
 		Value: ctx.Query("value"),
 	}
@@ -40,46 +35,104 @@ func (h *Handler) getDocsList(ctx *gin.Context) (any, any, *middleware.ErrorResp
 	switch err {
 	case nil:
 		if ctx.Request.Method == http.MethodGet {
-			return filteredDocs, nil, nil, http.StatusOK
+			ctx.JSON(http.StatusOK, entity.SuccessResponse{
+				Message: "Docs fetched successfully",
+				Data:    filteredDocs,
+			})
+			return
 		} else if ctx.Request.Method == http.MethodHead {
-			return nil, nil, nil, http.StatusOK
+			ctx.JSON(http.StatusOK, entity.SuccessResponse{
+				Message: "Docs fetched successfully",
+			})
+			return
 		}
-	case service.ErrUnauthorized:
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusUnauthorized, Text: err.Error()}, http.StatusUnauthorized
 	case service.ErrForbidden:
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusForbidden, Text: err.Error()}, http.StatusForbidden
+		{
+			ctx.JSON(http.StatusForbidden, entity.ErrorResponse{
+				Message: "Forbidden",
+				Error:   err.Error(),
+			})
+			return
+		}
 	case service.ErrBadRequest:
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusBadRequest, Text: err.Error()}, http.StatusBadRequest
+		{
+			ctx.JSON(http.StatusBadRequest, entity.ErrorResponse{
+				Message: "Bad",
+				Error:   err.Error(),
+			})
+			return
+		}
+	default:
+		{
+			ctx.JSON(http.StatusInternalServerError, entity.ErrorResponse{
+				Message: "Internal Server Error",
+				Error:   err.Error(),
+			})
+			return
+		}
 	}
-	return nil, nil, &middleware.ErrorResponse{Code: http.StatusInternalServerError, Text: err.Error()}, http.StatusInternalServerError
 
 }
 
-func (h *Handler) getDoc(ctx *gin.Context) (any, any, *middleware.ErrorResponse, int) {
+func (h *Handler) getDoc(ctx *gin.Context) {
 	logrus.Debug("Entering getDoc handler")
 
-	login, err := getLogin(ctx)
-	if err != nil {
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusUnauthorized, Text: err.Error()}, http.StatusUnauthorized
+	login, exists := ctx.Get("login")
+	if !exists {
+		{
+			ctx.JSON(http.StatusUnauthorized, entity.ErrorResponse{
+				Message: "Unauthorized",
+			})
+			return
+		}
 	}
 	id, _ := uuid.Parse(ctx.Param("id"))
 
-	doc, err := h.services.GetDoc(ctx, id, login)
+	doc, err := h.services.GetDoc(ctx, id, login.(string))
 	switch err {
 	case nil:
 		if doc == nil { //сервис уже передал файл
-			return nil, nil, nil, 0
+			return
 		}
-		return doc, nil, nil, http.StatusOK
+		{
+			ctx.JSON(http.StatusOK, entity.SuccessResponse{
+				Message: "Doc fetched successfully",
+				Data:    doc,
+			})
+			return
+		}
 	case os.ErrNotExist:
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusNotFound, Text: err.Error()}, http.StatusNotFound
-
+		{
+			ctx.JSON(http.StatusNotFound, entity.ErrorResponse{
+				Message: "Not found",
+				Error:   err.Error(),
+			})
+			return
+		}
 	case service.ErrNotFound:
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusNotFound, Text: err.Error()}, http.StatusNotFound
+		{
+			ctx.JSON(http.StatusNotFound, entity.ErrorResponse{
+				Message: "Not found",
+				Error:   err.Error(),
+			})
+			return
+		}
 	case service.ErrForbidden:
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusForbidden, Text: err.Error()}, http.StatusForbidden
+		{
+			ctx.JSON(http.StatusForbidden, entity.ErrorResponse{
+				Message: "Acess Forbidden",
+				Error:   err.Error(),
+			})
+			return
+		}
 	default:
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusInternalServerError, Text: err.Error()}, http.StatusInternalServerError
+		{
+			ctx.JSON(http.StatusInternalServerError, entity.ErrorResponse{
+				Message: "Internal Server Error",
+				Error:   err.Error(),
+			})
+			return
+		}
 	}
 }
 
@@ -88,47 +141,56 @@ type UploadResponse struct {
 	File string      `json:"file"`
 }
 
-func (h *Handler) postDoc(ctx *gin.Context) (any, any, *middleware.ErrorResponse, int) {
-	logrus.Debug("Entering uploadDocument handler")
-	login, err := getLogin(ctx)
-	if err != nil {
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusUnauthorized, Text: err.Error()}, http.StatusUnauthorized
+func (h *Handler) postDoc(ctx *gin.Context) {
+	logrus.Debug("Entering postDoc handler")
+
+	login, exists := ctx.Get("login")
+	if !exists {
+		ctx.JSON(http.StatusUnauthorized, entity.ErrorResponse{
+			Message: "Unauthorized",
+		})
+		return
 	}
+	logrus.Debug("MultipartForm")
 
 	form, err := ctx.MultipartForm()
 	if err != nil {
-		return nil, nil, &middleware.ErrorResponse{
-			Code: http.StatusBadRequest,
-			Text: "failed to parse multipart form",
-		}, http.StatusBadRequest
+		ctx.JSON(http.StatusBadRequest, entity.ErrorResponse{
+			Message: "Failed to parse multipart form",
+			Error:   err.Error(),
+		})
+		return
 	}
 	defer form.RemoveAll()
-
+	logrus.Debug("metaValues")
 	// Обработка meta-части
 	metaValues := form.Value["meta"]
 	if len(metaValues) == 0 {
-		return nil, nil, &middleware.ErrorResponse{
-			Code: http.StatusBadRequest,
-			Text: "missing meta field",
-		}, http.StatusBadRequest
+		ctx.JSON(http.StatusBadRequest, entity.ErrorResponse{
+			Message: "Missing meta field",
+			Error:   err.Error(),
+		})
+		return
 	}
 
+	logrus.Debug("Unmarshal meta handler")
 	var meta entity.UploadMeta
 	if err := json.Unmarshal([]byte(metaValues[0]), &meta); err != nil {
-		return nil, nil, &middleware.ErrorResponse{
-			Code: http.StatusBadRequest,
-			Text: "invalid meta format",
-		}, http.StatusBadRequest
+		ctx.JSON(http.StatusBadRequest, entity.ErrorResponse{
+			Message: "Invalid meta format",
+			Error:   err.Error(),
+		})
+		return
 	}
 
+	logrus.Debug("jsonData handler")
 	var jsonData entity.JSONB
 	if jsonValues, exists := form.Value["json"]; exists && len(jsonValues) > 0 {
-		if err := json.Unmarshal([]byte(jsonValues[0]), &jsonData); err != nil {
-			return nil, nil, &middleware.ErrorResponse{
-				Code: http.StatusBadRequest,
-				Text: "invalid json format",
-			}, http.StatusBadRequest
-		}
+		ctx.JSON(http.StatusBadRequest, entity.ErrorResponse{
+			Message: "Invalid JSON format",
+			Error:   err.Error(),
+		})
+		return
 	}
 
 	var fileHeader *multipart.FileHeader
@@ -139,7 +201,7 @@ func (h *Handler) postDoc(ctx *gin.Context) (any, any, *middleware.ErrorResponse
 	// Вызываем сервисный слой
 	_, err = h.services.PostDoc(
 		ctx,
-		login,
+		login.(string),
 		meta,
 		jsonData,
 		fileHeader,
@@ -147,10 +209,12 @@ func (h *Handler) postDoc(ctx *gin.Context) (any, any, *middleware.ErrorResponse
 
 	if err != nil {
 		logrus.Errorf("Upload document error: %v", err)
-		return nil, nil, &middleware.ErrorResponse{
-			Code: http.StatusInternalServerError,
-			Text: "failed to upload document",
-		}, http.StatusInternalServerError
+
+		ctx.JSON(http.StatusInternalServerError, entity.ErrorResponse{
+			Message: "Failed to Upload document",
+			Error:   err.Error(),
+		})
+		return
 	}
 
 	data := UploadResponse{}
@@ -159,31 +223,65 @@ func (h *Handler) postDoc(ctx *gin.Context) (any, any, *middleware.ErrorResponse
 		data.File = meta.Name
 	}
 
-	return data, nil, nil, http.StatusCreated
-
+	ctx.JSON(http.StatusCreated, entity.SuccessResponse{
+		Message: "Doc uploaded successfully",
+	})
+	return
 }
 
-func (h *Handler) deleteDoc(ctx *gin.Context) (any, any, *middleware.ErrorResponse, int) {
+func (h *Handler) deleteDoc(ctx *gin.Context) {
 	logrus.Debug("Entering deleteDoc handler")
 
 	docID, _ := uuid.Parse(ctx.Param("id"))
-	login, err := getLogin(ctx)
-	if err != nil {
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusUnauthorized, Text: err.Error()}, http.StatusUnauthorized
+	login, exists := ctx.Get("login")
+	if !exists {
+		ctx.JSON(http.StatusUnauthorized, entity.ErrorResponse{
+			Message: "Unauthorized",
+		})
+		return
 	}
 
-	resp, err := h.services.DeleteDoc(ctx, docID, login)
+	resp, err := h.services.DeleteDoc(ctx, docID, login.(string))
 	switch err {
 	case nil:
-		return nil, resp, nil, http.StatusOK
+		{
+			ctx.JSON(http.StatusOK, entity.SuccessResponse{
+				Message: "Doc deleted successfully",
+				Data:    resp,
+			})
+			return
+		}
 	case os.ErrNotExist:
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusNotFound, Text: err.Error()}, http.StatusNotFound
-
+		{
+			ctx.JSON(http.StatusNotFound, entity.ErrorResponse{
+				Message: "Not found",
+				Error:   err.Error(),
+			})
+			return
+		}
 	case service.ErrNotFound:
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusNotFound, Text: err.Error()}, http.StatusNotFound
+		{
+			ctx.JSON(http.StatusNotFound, entity.ErrorResponse{
+				Message: "Not found",
+				Error:   err.Error(),
+			})
+			return
+		}
 	case service.ErrForbidden:
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusForbidden, Text: err.Error()}, http.StatusForbidden
+		{
+			ctx.JSON(http.StatusForbidden, entity.ErrorResponse{
+				Message: "Forbidden",
+				Error:   err.Error(),
+			})
+			return
+		}
 	default:
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusInternalServerError, Text: err.Error()}, http.StatusInternalServerError
+		{
+			ctx.JSON(http.StatusInternalServerError, entity.ErrorResponse{
+				Message: "Internal Server Error",
+				Error:   err.Error(),
+			})
+			return
+		}
 	}
 }

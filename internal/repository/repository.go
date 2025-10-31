@@ -8,8 +8,11 @@ import (
 )
 
 type Authorization interface {
-	CreateUser(login, password string) (string, error)
-	GetUser(username, password string) (entity.User, error)
+	CreateUser(login, password string) (uuid.UUID, error)
+	GetUser(username, password string) (*entity.User, error)
+	GetUserByLogin(login string) (*entity.User, error)
+	GetUserByID(id uuid.UUID) (*entity.User, error)
+	UpdateUserToken(uuid uuid.UUID, token string) error
 }
 
 type Docs interface {

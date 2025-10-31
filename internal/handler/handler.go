@@ -5,8 +5,12 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
+	"github.com/go-playground/validator/v10"
+	"github.com/olenka-91/DocsServer/internal/entity"
 	"github.com/olenka-91/DocsServer/internal/handler/middleware"
 	"github.com/olenka-91/DocsServer/internal/service"
+	"github.com/sirupsen/logrus"
 	//	swaggerFiles "github.com/swaggo/files"     // swagger embed files
 	//	ginSwagger "github.com/swaggo/gin-swagger" // gin-swagger middleware
 	//	_ "github.com/olenka-91/DocsServer/docs"
@@ -23,26 +27,41 @@ func NewHandler(serv *service.Service) *Handler {
 func (h *Handler) InitRoutes() *gin.Engine {
 	router := gin.New()
 
+	//Кастомный валидатор пароля
+	if v, ok := binding.Validator.Engine().(*validator.Validate); ok {
+		err := v.RegisterValidation("password_complexity", entity.ValidatePasswordComplexity)
+		if err != nil {
+			logrus.Fatal("Failed to register validation:", err)
+		}
+	}
+
 	// router.NoMethod(middleware.Wrap(h.handleMethodNotAllowed))
 	router.Use(gin.Logger())
 
 	router = h.InitExtraErrorHandlers(router)
 
-	g := router.Group("/api/docs", h.userIdentity)
+	g := router.Group("/api")
 	{
-		g.GET("", middleware.Wrap(h.getDocsList))
-		g.HEAD("", middleware.Wrap(h.getDocsList))
-		g.GET("/:id", middleware.Wrap(h.getDoc))
-		g.HEAD("/:id", middleware.Wrap(h.getDoc))
-		g.POST("", middleware.Wrap(h.postDoc))
-		g.DELETE("/:id", middleware.Wrap(h.deleteDoc))
+		g.POST("/auth", h.signIn)
+		g.POST("/register", h.signUp)
+		g.POST("/refresh", h.refreshToken)
 	}
 
-	g = router.Group("/api")
+	private := router.Group("/api")
+	private.Use(middleware.AuthMiddleware())
 	{
-		g.POST("/auth", middleware.Wrap(h.autorizeUser))
-		g.POST("/register", middleware.Wrap(h.registerUser))
-		g.DELETE("/auth/:token", middleware.Wrap(h.logoutUser))
+		private.POST("/logout", h.logout)
+	}
+
+	private = router.Group("/api/docs")
+	private.Use(middleware.AuthMiddleware())
+	{
+		private.GET("", h.getDocsList)
+		private.HEAD("", h.getDocsList)
+		private.GET("/:id", h.getDoc)
+		private.HEAD("/:id", h.getDoc)
+		private.POST("", h.postDoc)
+		private.DELETE("/:id", h.deleteDoc)
 	}
 
 	//	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
@@ -53,24 +72,29 @@ func (h *Handler) InitRoutes() *gin.Engine {
 
 func (h *Handler) InitExtraErrorHandlers(r *gin.Engine) *gin.Engine {
 	r.Use(gin.CustomRecovery(func(c *gin.Context, r any) {
-		middleware.Fail(c, http.StatusInternalServerError,
-			http.StatusInternalServerError, "internal server error")
+		c.JSON(http.StatusInternalServerError, entity.ErrorResponse{
+			Message: "Internal Server Error",
+		})
 	}))
 
 	r.HandleMethodNotAllowed = true //откл стандартный обработчик
 
-	r.NoMethod(middleware.Wrap(func(c *gin.Context) (any, any, *middleware.ErrorResponse, int) {
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusMethodNotAllowed, Text: "method not allowed"}, http.StatusMethodNotAllowed
-	}))
+	r.NoMethod(func(c *gin.Context) {
+		c.JSON(http.StatusMethodNotAllowed, entity.ErrorResponse{
+			Message: "Method Not Allowed",
+		})
+	})
 
-	r.NoRoute(middleware.Wrap(func(c *gin.Context) (any, any, *middleware.ErrorResponse, int) {
+	r.NoRoute((func(c *gin.Context) {
 		if strings.HasPrefix(c.Request.URL.Path, "/swagger/*any") {
-			return nil, nil, &middleware.ErrorResponse{Code: http.StatusNotImplemented, Text: "status not implemented"},
-				http.StatusNotImplemented
+			c.JSON(http.StatusNotImplemented, entity.ErrorResponse{
+				Message: "Not Implemented",
+			})
 		}
 
-		return nil, nil, &middleware.ErrorResponse{Code: http.StatusNotFound, Text: "not found"},
-			http.StatusNotFound
+		c.JSON(http.StatusNotFound, entity.ErrorResponse{
+			Message: "Not Found",
+		})
 	}))
 	return r
 }

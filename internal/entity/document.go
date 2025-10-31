@@ -11,7 +11,7 @@ import (
 
 type LimitedDocsListInput struct {
 	Token string `json:"token"`
-	Login string `json:"login"` //опционально — если не указан — то список своих
+	//	Login string `json:"login"` //опционально — если не указан — то список своих
 	Key   string `json:"key"`   //имя колонки для фильтрации
 	Value string `json:"value"` //- значение фильтра
 	Limit int    `json:"limit"` //кол-во документов в списке

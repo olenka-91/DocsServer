@@ -11,7 +11,6 @@ type Config struct {
 	DBName      string
 	SSLMode     string
 	StorageAddr string
-	AdminToken  string
 }
 
 const (
@@ -28,12 +27,11 @@ func Load() (*Config, error) {
 		HTTPPort:    viper.GetString("APP_PORT"),
 		DBHost:      viper.GetString("DB_HOST"),
 		DBPort:      viper.GetString("DB_PORT"),
-		DBName:      viper.GetString("DB_NAME"),
 		DBUsername:  viper.GetString("DB_USERNAME"),
 		DBPassword:  viper.GetString("DB_PASSWORD"),
+		DBName:      viper.GetString("DB_NAME"),
 		SSLMode:     viper.GetString("DB_SSLMODE"),
 		StorageAddr: defaultStorageAddr,
-		AdminToken:  viper.GetString("ADMIN_TOKEN"),
 	}
 	return cfg, nil
 }
